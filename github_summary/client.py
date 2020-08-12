@@ -249,3 +249,60 @@ class GithubSummary:
 
         return response
 
+    @command(output_type="HTML", description="Create summary for all Projects in an organization (or organization/repo)")
+    @parameter(
+        key="organization",
+        description="Github Organization",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="repo",
+        description="Github Repo",
+        optional=True,
+        type="String",
+        default=''
+    )
+    def get_projects_issues_summary(self, organization, repo: str = None):
+
+        organization = self.g.get_organization(organization)
+        projects = []
+        if repo != '':
+            repos = organization.get_repo(repo)
+            projects_pages = repos.get_projects()
+        else:
+            projects_pages = organization.get_projects()
+
+        result = '<table datatable="ng"' \
+                 '       dt-options="dtOptions"' \
+                 '       class="table table-striped table-bordered"' \
+                 '       style="width: 100%">' \
+                 '  <thead>' \
+                 '    <tr>' \
+                 '      <th scope="col">Organization</th>' \
+                 '      <th scope="col">Project</th>' \
+                 '      <th scope="col">Status</th>' \
+                 '      <th scope="col">Issue #</th>' \
+                 '      <th scope="col">Title</th>' \
+                 '      <th scope="col">Description</th>' \
+                 '    </tr>' \
+                 '  </thead>' \
+                 '  <tbody>'
+
+        for project in projects_pages:
+            projects.append(project)
+            for column in project.get_columns():
+                for card in column.get_cards():
+                    issue = card.get_content()
+                    result += '<tr>' \
+                              '  <td>' + organization.name + '</td>' \
+                              '  <td>' + project.name + '</td> ' \
+                              '  <td>' + column.name + '</td> ' \
+                              '  <td>' + str(issue.number) + '</td> ' \
+                              '  <td>' + issue.title + '</td> ' \
+                              '  <td>' + issue.body + '</td>' \
+                              '</td>'
+
+        result += '</tbody>' \
+                  '</table>'
+        return result
