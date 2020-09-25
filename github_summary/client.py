@@ -1,6 +1,6 @@
 from github import Github
 from datetime import datetime, timedelta
-from brewtils import command, parameter, system, SystemClient
+from brewtils import command, parameter, system
 
 
 @system
@@ -17,8 +17,6 @@ class GithubSummary:
             # If username/password or Token is not provided, github allows for a limited query
             # of their API. Running this will most likely exceed that hourly rate.
             self.g = Github()
-
-        self.client = SystemClient(system_name="github_summary", **params)
 
     @command(output_type="HTML", description="Create summary PRs created/modified in date range")
     @parameter(
@@ -383,10 +381,10 @@ class GithubSummary:
     )
     def get_repo_summary(self, organization: str, repoName: str, days: int = 14, base: str = "master"):
 
-        open_prs = self.client.get_latest_active_prs(organization, repoName, days=days, base=base)
-        closed_prs = self.client.get_latest_closed_prs(organization, repoName, days=days, base=base)
-        opened_tickets = self.client.get_latest_created_tickets(organization, repoName, days=days)
-        closed_tickets = self.client.get_latest_closed_tickets(organization, repoName, days=days)
+        open_prs = self.get_latest_active_prs(organization, repoName, days=days, base=base)
+        closed_prs = self.get_latest_closed_prs(organization, repoName, days=days, base=base)
+        opened_tickets = self.get_latest_created_tickets(organization, repoName, days=days)
+        closed_tickets = self.get_latest_closed_tickets(organization, repoName, days=days)
 
         if open_prs or closed_prs or opened_tickets or closed_tickets:
             response = f"<h1>Summary for {organization}/{repoName}</h1>"
@@ -433,8 +431,8 @@ class GithubSummary:
     def get_organization_summary(self, organization, days: int = 14, base: str = "master"):
 
         response = ""
-        for repo in self.client.get_repos_by_organization(organization):
-            response += self.client.get_repo_summary(organization, repo, days=days, base=base)
+        for repo in self.get_repos_by_organization(organization):
+            response += self.get_repo_summary(organization, repo, days=days, base=base)
 
         return response
 
