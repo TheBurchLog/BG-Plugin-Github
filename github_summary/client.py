@@ -7,7 +7,7 @@ from brewtils import command, parameter, system, SystemClient
 class GithubSummary:
     """A client that is designed to pull back summaries of Github Repos"""
 
-    def __init__(self, username: str = None, password: str = None, token: str = None):
+    def __init__(self, params, username: str = None, password: str = None, token: str = None):
 
         if token:
             self.g = Github(token)
@@ -18,7 +18,7 @@ class GithubSummary:
             # of their API. Running this will most likely exceed that hourly rate.
             self.g = Github()
 
-        self.client = SystemClient(system_name="github_summary")
+        self.client = SystemClient(system_name="github_summary", **params)
 
     @command(output_type="HTML", description="Create summary PRs created/modified in date range")
     @parameter(
@@ -383,10 +383,10 @@ class GithubSummary:
     )
     def get_repo_summary(self, organization: str, repoName: str, days: int = 14, base: str = "master"):
 
-        open_prs = self.self.client.get_latest_active_prs(organization, repoName, days=days, base=base)
-        closed_prs = self.self.client.get_latest_closed_prs(organization, repoName, days=days, base=base)
-        opened_tickets = self.self.client.get_latest_created_tickets(organization, repoName, days=days)
-        closed_tickets = self.self.client.get_latest_closed_tickets(organization, repoName, days=days)
+        open_prs = self.client.get_latest_active_prs(organization, repoName, days=days, base=base)
+        closed_prs = self.client.get_latest_closed_prs(organization, repoName, days=days, base=base)
+        opened_tickets = self.client.get_latest_created_tickets(organization, repoName, days=days)
+        closed_tickets = self.client.get_latest_closed_tickets(organization, repoName, days=days)
 
         if open_prs or closed_prs or opened_tickets or closed_tickets:
             response = f"<h1>Summary for {organization}/{repoName}</h1>"
@@ -433,8 +433,8 @@ class GithubSummary:
     def get_organization_summary(self, organization, days: int = 14, base: str = "master"):
 
         response = ""
-        for repo in self.self.client.get_repos_by_organization(organization):
-            response += self.self.client.get_repo_summary(organization, repo, days=days, base=base)
+        for repo in self.client.get_repos_by_organization(organization):
+            response += self.client.get_repo_summary(organization, repo, days=days, base=base)
 
         return response
 

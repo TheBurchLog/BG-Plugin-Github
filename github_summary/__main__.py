@@ -20,7 +20,7 @@ def main():
     token = os.getenv("github_token")
 
     Plugin(
-        GithubSummary(username=username, password=password, token=token),
+        GithubSummary(connection_params, username=username, password=password, token=token),
         name="github-summary",
         version=__version__,
         **connection_params
