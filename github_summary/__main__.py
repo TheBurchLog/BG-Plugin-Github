@@ -4,7 +4,10 @@ from __future__ import absolute_import
 import sys
 import os
 from brewtils import get_connection_info, Plugin
-from .client import GithubSummary
+try:
+    from .client import GithubSummary
+except:
+    from client import GithubSummary
 
 __version__ = "1.0.0.dev0"
 

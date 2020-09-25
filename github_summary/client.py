@@ -38,10 +38,17 @@ class GithubSummary:
         type="Integer",
         default=30,
     )
-    def get_latest_active_prs(self, organization: str, repoName: str, days: int = 30):
+    @parameter(
+        key="base",
+        description="Branch",
+        optional=True,
+        type="String",
+        default="master",
+    )
+    def get_latest_active_prs(self, organization: str, repoName: str, days: int = 30, base: str = "master"):
         repo = self.g.get_repo(f'{organization}/{repoName}')
 
-        pulls = repo.get_pulls(state='open', sort='created', base='v3')
+        pulls = repo.get_pulls(state='open', sort='created', base=base)
 
         now = datetime.now()
 
@@ -74,10 +81,17 @@ class GithubSummary:
         type="Integer",
         default=30,
     )
-    def get_latest_closed_prs(self, organization: str, repoName: str, days: int = 14):
+    @parameter(
+        key="base",
+        description="Branch",
+        optional=True,
+        type="String",
+        default="master",
+    )
+    def get_latest_closed_prs(self, organization: str, repoName: str, days: int = 14, base: str = "master"):
         repo = self.g.get_repo(f'{organization}/{repoName}')
 
-        pulls = repo.get_pulls(state='closed', sort='created', base='v3')
+        pulls = repo.get_pulls(state='closed', sort='created', base=base)
 
         now = datetime.now()
 
@@ -88,6 +102,165 @@ class GithubSummary:
                             f"<i>Created:{pr.user.name if pr.user.name else pr.user.login} </i><br>" \
                             f"{pr.body}<br>"
 
+        return response
+
+    @command(output_type="HTML", description="Grabs PRs in date range and provides open/closed data")
+    @parameter(
+        key="organization",
+        description="Github Organization",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="repoName",
+        description="Github Repo Name",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="days",
+        description="How many days back to query",
+        optional=True,
+        type="Integer",
+        default=30,
+    )
+    @parameter(
+        key="base",
+        description="Branch",
+        optional=True,
+        type="String",
+        default="master",
+    )
+    def get_pr_open_closed(self, organization: str, repoName: str, days: int, base: str, ):
+        repo = self.g.get_repo(f'{organization}/{repoName}')
+
+        pulls = repo.get_pulls(state='closed', sort='created', base=base)
+
+        now = datetime.now()
+
+        response = "<table><th><td>PR</td><td>Developer</td><td>Open Date</td><td>Closed Date<td><th>"
+        for pr in pulls:
+            if now - timedelta(days=days) <= pr.updated_at <= now and not pr.user.login.endswith("-bot"):
+                response += f"<tr><td>{organization}/{repoName}#{pr.number} {pr.title}</td>" \
+                            f"<td>{pr.user.name if pr.user.name else pr.user.login} </td>" \
+                            f"<td>{pr.created_at}</td>" \
+                            f"<td>{pr.merged_at}</td></tr>"
+
+        response += "</table>"
+        return response
+
+    def generate_timestamp(self, date: datetime):
+        return f"{date.isocalendar()[0]}-W{date.isocalendar()[1]}"
+
+    def get_week_start(self, date: datetime):
+
+        week = f"{date.isocalendar()[0]}-W{date.isocalendar()[1]}"
+
+        r = datetime.strptime(week + '-1', "%Y-W%W-%w")
+
+        return f"{r.date().isoformat()}"
+
+    @command(output_type="HTML", description="Grabs PRs in date range and provides open/closed data")
+    @parameter(
+        key="organization",
+        description="Github Organization",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="repoName",
+        description="Github Repo Name",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="days",
+        description="How many days back to query",
+        optional=True,
+        type="Integer",
+        default=30,
+    )
+    @parameter(
+        key="base",
+        description="Branch",
+        optional=True,
+        type="String",
+        default="master",
+    )
+    def get_pr_daily_metrics(self, organization: str, repoName: str, days: int, base: str, ):
+        repo = self.g.get_repo(f'{organization}/{repoName}')
+
+        closedPulls = repo.get_pulls(state='closed', sort='created', base=base)
+
+        openPulls = repo.get_pulls(state='closed', sort='created', base=base)
+
+        now = datetime.now()
+
+        stats = {}
+
+        for pr in closedPulls:
+            if now - timedelta(days=days) <= pr.updated_at <= now and not pr.user.login.endswith("-bot"):
+
+                created = self.generate_timestamp(pr.created_at)
+
+                if created in stats:
+                    stats[created]['created'] = stats[created]['created'] + 1
+                else:
+                    stats[created] = {}
+                    stats[created]['created'] = 1
+                    stats[created]['merged'] = 0
+                    stats[created]['date'] = self.get_week_start(pr.created_at)
+
+                if pr.merged_at:
+                    merged = self.generate_timestamp(pr.merged_at)
+                    if merged in stats:
+                        stats[merged]['merged'] = stats[merged]['merged'] + 1
+                    else:
+                        stats[merged] = {}
+                        stats[merged]['created'] = 0
+                        stats[merged]['merged'] = 1
+                        stats[merged]['date'] = self.get_week_start(pr.merged_at)
+
+        for pr in openPulls:
+            if now - timedelta(days=days) <= pr.updated_at <= now and not pr.user.login.endswith("-bot"):
+
+                created = self.generate_timestamp(pr.created_at)
+
+                if created in stats:
+                    stats[created]['created'] = stats[created]['created'] + 1
+                else:
+                    stats[created] = {}
+                    stats[created]['created'] = 1
+                    stats[created]['merged'] = 0
+                    stats[created]['date'] = self.get_week_start(pr.created_at)
+
+                if pr.merged_at:
+                    merged = self.generate_timestamp(pr.merged_at)
+                    if merged in stats:
+                        stats[merged]['merged'] = stats[merged]['merged'] + 1
+                    else:
+                        stats[merged] = {}
+                        stats[merged]['created'] = 0
+                        stats[merged]['merged'] = 1
+                        stats[merged]['date'] = self.get_week_start(pr.merged_at)
+
+        # print(stats)
+        response = "<table>" \
+                   "<tr>" \
+                   "<td>Week</td>" \
+                   "<td>Date</td>" \
+                   "<td>Total Open</td>" \
+                   "<td>Total Closed</td>" \
+                   "<tr>"
+
+        for day in stats:
+            response += "<tr>"
+            response += f"<td>{day}</td>"
+            response += f"<td>{stats[day]['date']}</td>"
+            response += f"<td>{stats[day]['created']}</td>"
+            response += f"<td>{stats[day]['merged']}</td>"
+            response += "</tr>"
+        response += "</table>"
         return response
 
     @command(output_type="HTML", description="Create summary tickets created in date range")
@@ -199,12 +372,19 @@ class GithubSummary:
         type="Integer",
         default=30,
     )
-    def get_repo_summary(self, organization: str, repoName: str, days: int = 14):
+    @parameter(
+        key="base",
+        description="Branch",
+        optional=True,
+        type="String",
+        default="master",
+    )
+    def get_repo_summary(self, organization: str, repoName: str, days: int = 14, base: str = "master"):
 
-        open_prs = self.get_latest_active_prs(organization, repoName, days=days)
-        closed_prs = self.get_latest_closed_prs(organization, repoName, days=days)
-        opened_tickets = self.get_latest_created_tickets(organization, repoName, days=days)
-        closed_tickets = self.get_latest_closed_tickets(organization, repoName, days=days)
+        open_prs = self.get_latest_active_prs(organization, repoName, days=days, base=base)
+        closed_prs = self.get_latest_closed_prs(organization, repoName, days=days, base=base)
+        opened_tickets = self.get_latest_created_tickets(organization, repoName, days=days, base=base)
+        closed_tickets = self.get_latest_closed_tickets(organization, repoName, days=days, base=base)
 
         if open_prs or closed_prs or opened_tickets or closed_tickets:
             response = f"<h1>Summary for {organization}/{repoName}</h1>"
@@ -241,15 +421,23 @@ class GithubSummary:
         type="Integer",
         default=30,
     )
-    def get_organization_summary(self, organization, days: int = 14):
+    @parameter(
+        key="base",
+        description="Branch",
+        optional=True,
+        type="String",
+        default="master",
+    )
+    def get_organization_summary(self, organization, days: int = 14, base: str = "master"):
 
         response = ""
         for repo in self.get_repos_by_organization(organization):
-            response += self.get_repo_summary(organization, repo, days=days)
+            response += self.get_repo_summary(organization, repo, days=days, base=base)
 
         return response
 
-    @command(output_type="HTML", description="Create summary for all Projects in an organization (or organization/repo)")
+    @command(output_type="HTML",
+             description="Create summary for all Projects in an organization (or organization/repo)")
     @parameter(
         key="organization",
         description="Github Organization",
@@ -296,12 +484,13 @@ class GithubSummary:
                     issue = card.get_content()
                     result += '<tr>' \
                               '  <td>' + organization.name + '</td>' \
-                              '  <td>' + project.name + '</td> ' \
-                              '  <td>' + column.name + '</td> ' \
-                              '  <td>' + str(issue.number) + '</td> ' \
-                              '  <td>' + issue.title + '</td> ' \
-                              '  <td>' + issue.body + '</td>' \
-                              '</td>'
+                                                             '  <td>' + project.name + '</td> ' \
+                                                                                       '  <td>' + column.name + '</td> ' \
+                                                                                                                '  <td>' + str(
+                        issue.number) + '</td> ' \
+                                        '  <td>' + issue.title + '</td> ' \
+                                                                 '  <td>' + issue.body + '</td>' \
+                                                                                         '</td>'
 
         result += '</tbody>' \
                   '</table>'
