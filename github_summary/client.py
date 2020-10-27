@@ -1,6 +1,7 @@
 from github import Github
 from datetime import datetime, timedelta
 from brewtils import command, parameter, system
+import json
 
 
 @system
@@ -495,3 +496,66 @@ class GithubSummary:
         result += '</tbody>' \
                   '</table>'
         return result
+
+    @command(output_type="JSON",
+             description="Create JSON dump for all Projects in an organization (or organization/repo)")
+    @parameter(
+        key="organization",
+        description="Github Organization",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="repo",
+        description="Github Repo",
+        optional=True,
+        type="String",
+        default=''
+    )
+    def json_dump_project_tickets(self, organization, repo: str = None):
+        organization = self.g.get_organization(organization)
+        projects = []
+        tickets = dict()
+
+        if repo != '':
+            repos = organization.get_repo(repo)
+            projects_pages = repos.get_projects()
+        else:
+            projects_pages = organization.get_projects()
+
+        for project in projects_pages:
+            projects.append(project)
+            for column in project.get_columns():
+                for card in column.get_cards():
+                    ticket = dict()
+
+                    issue = card.get_content()
+
+                    if issue.id in tickets:
+                        tickets[issue.id]["project"].append({"project": str(project.name), "column": str(column.name)})
+                    else:
+
+                        ticket["body"] = str(issue.body)
+                        if issue.user:
+                            ticket["assigned"] = str(issue.user.name) if issue.user.name else str(issue.user.login)
+
+                        ticket["number"] = str(issue.number)
+                        ticket["title"] = str(issue.title)
+                        ticket["repo"] = str(issue.repository.name)
+                        ticket["status"] = str(issue.state)
+
+                        comments = issue.get_comments()
+                        ticket["comments"] = list()
+                        for comment in comments:
+                            ticket["comments"].append({
+                                "body": str(comment.body),
+                                "created": str(comment.created_at),
+                                "user": str(comment.user.name) if comment.user.name else str(comment.user.login),
+                                "id": str(comment.id),
+                            })
+
+                        ticket["project"] = [{"project": str(project.name), "column": str(column.name)}]
+
+                        tickets[issue.id] = ticket
+
+        return json.dumps(tickets)
