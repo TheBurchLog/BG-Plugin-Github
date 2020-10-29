@@ -532,8 +532,8 @@ class GithubSummary:
 
                     issue = card.get_content()
 
-                    if issue.number in tickets:
-                        tickets[issue.number]["project"].append(
+                    if str(issue.number) in tickets:
+                        tickets[str(issue.number)]["project"].append(
                             {"project": str(project.name), "column": str(column.name)})
                     else:
 
@@ -542,7 +542,7 @@ class GithubSummary:
                         ticket["organization"] = str(organization_name)
                         ticket["number"] = str(issue.number)
 
-                        tickets[issue.number] = ticket
+                        tickets[str(issue.number)] = ticket
 
         return tickets
 
@@ -664,7 +664,7 @@ class GithubSummary:
                     issue_number: int = None):
 
         if ticket is None:
-            if os.path.exists(f"{directory}/{file}.json"):
+            if os.path.exists(f"{directory}/{file}"):
                 with open(f"{directory}/{file}") as json_file:
                     ticket = json.load(json_file)
             else:
@@ -692,7 +692,7 @@ class GithubSummary:
     def get_ticket_details(self,
                            organization: str,
                            repo_name: str,
-                           ticket=dict(),
+                           ticket=None,
                            issue=None,
                            issue_number: int = None):
 
