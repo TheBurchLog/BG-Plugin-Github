@@ -2,6 +2,7 @@ from github import Github
 from datetime import datetime, timedelta
 from brewtils import command, parameter, system
 import json
+import os
 
 
 @system
@@ -500,7 +501,7 @@ class GithubSummary:
     @command(output_type="JSON",
              description="Create JSON dump for all Projects in an organization (or organization/repo)")
     @parameter(
-        key="organization",
+        key="organization_name",
         description="Github Organization",
         optional=False,
         type="String",
@@ -512,8 +513,8 @@ class GithubSummary:
         type="String",
         default=''
     )
-    def json_dump_project_tickets(self, organization, repo: str = None):
-        organization = self.g.get_organization(organization)
+    def get_project_tickets(self, organization_name, repo: str = None):
+        organization = self.g.get_organization(organization_name)
         projects = []
         tickets = dict()
 
@@ -531,31 +532,194 @@ class GithubSummary:
 
                     issue = card.get_content()
 
-                    if issue.id in tickets:
-                        tickets[issue.id]["project"].append({"project": str(project.name), "column": str(column.name)})
+                    if issue.number in tickets:
+                        tickets[issue.number]["project"].append(
+                            {"project": str(project.name), "column": str(column.name)})
                     else:
 
-                        ticket["body"] = str(issue.body)
-                        if issue.user:
-                            ticket["assigned"] = str(issue.user.name) if issue.user.name else str(issue.user.login)
-
-                        ticket["number"] = str(issue.number)
-                        ticket["title"] = str(issue.title)
-                        ticket["repo"] = str(issue.repository.name)
-                        ticket["status"] = str(issue.state)
-
-                        comments = issue.get_comments()
-                        ticket["comments"] = list()
-                        for comment in comments:
-                            ticket["comments"].append({
-                                "body": str(comment.body),
-                                "created": str(comment.created_at),
-                                "user": str(comment.user.name) if comment.user.name else str(comment.user.login),
-                                "id": str(comment.id),
-                            })
-
                         ticket["project"] = [{"project": str(project.name), "column": str(column.name)}]
+                        ticket["repo"] = str(issue.repository.name)
+                        ticket["organization"] = str(organization_name)
+                        ticket["number"] = str(issue.number)
 
-                        tickets[issue.id] = ticket
+                        tickets[issue.number] = ticket
 
-        return json.dumps(tickets)
+        return tickets
+
+    @command(output_type="JSON",
+             description="Create JSON dump for all Tickets associated with Projects in an organization (or "
+                         "organization/repo) and updates metadata")
+    @parameter(
+        key="directory",
+        description="Define the location where the JSON tickets will be placed",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="organization",
+        description="Github Organization",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="repo_name",
+        description="Github Repo",
+        display_name="repo",
+        optional=True,
+        type="String",
+        default=''
+    )
+    def full_directory_sync(self, directory, organization, repo_name):
+        self.sync_project_tickets(directory, organization, repo_name)
+        self.sync_tickets_directory(directory)
+
+    @command(output_type="JSON",
+             description="Create JSON dump for all Tickets associated with Projects in an organization (or "
+                         "organization/repo)")
+    @parameter(
+        key="directory",
+        description="Define the location where the JSON tickets will be placed",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="organization",
+        description="Github Organization",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="repo_name",
+        description="Github Repo",
+        display_name="repo",
+        optional=True,
+        type="String",
+        default=''
+    )
+    def sync_project_tickets(self, directory, organization, repo_name):
+
+        # Sync Project Cards
+        project_tickets = self.get_project_tickets(organization, repo_name)
+
+        # Update the projects for all aligned tickets
+        for ticket_number in project_tickets:
+            file = f"{directory}/{ticket_number}.json"
+            ticket = dict()
+            if os.path.exists(file):
+                with open(file) as json_file:
+                    ticket = json.load(json_file)
+
+            ticket["project"] = project_tickets[ticket_number]["project"]
+            ticket["repo"] = project_tickets[ticket_number]["repo"]
+            ticket["organization"] = project_tickets[ticket_number]["organization"]
+            ticket["number"] = project_tickets[ticket_number]["number"]
+
+            with open(file, 'w') as outfile:
+                json.dump(ticket, outfile)
+
+        # If an issue is no longer aligned to a project, remove it
+        for file in os.listdir(directory):
+            if file.endswith(".json"):
+                ticket_number = file[:-5]
+
+                if ticket_number not in project_tickets:
+                    with open(f"{directory}/{file}") as json_file:
+                        ticket = json.load(json_file)
+                    ticket["project"] = []
+                    with open(f"{directory}/{file}", 'w') as outfile:
+                        json.dump(ticket, outfile)
+
+        return project_tickets
+
+    @command(output_type="JSON",
+             description="Updates the JSON dump for all Tickets")
+    @parameter(
+        key="directory",
+        description="Define the location where the JSON tickets are be placed",
+        optional=False,
+        type="String",
+    )
+    def sync_tickets_directory(self, directory):
+        tickets = list()
+        for file in os.listdir(directory):
+            if file.endswith(".json"):
+                with open(f"{directory}/{file}") as json_file:
+                    ticket = json.load(json_file)
+
+                tickets.append(self.sync_ticket(organization=ticket["organization"],
+                                                repo_name=ticket["repo"],
+                                                ticket=ticket,
+                                                issue_number=ticket["number"],
+                                                directory=directory,
+                                                file=file))
+
+        return tickets
+
+    def sync_ticket(self, directory: str,
+                    file: str,
+                    organization: str,
+                    repo_name: str,
+                    issue=None,
+                    ticket=None,
+                    issue_number: int = None):
+
+        if ticket is None:
+            if os.path.exists(f"{directory}/{file}.json"):
+                with open(f"{directory}/{file}") as json_file:
+                    ticket = json.load(json_file)
+            else:
+                ticket = dict()
+
+        if "status" in ticket and ticket["status"] == "CLOSED":
+            return ticket
+
+        if issue_number and not issue:
+            repo = self.g.get_repo(f'{organization}/{repo_name}')
+            issue = repo.get_issue(number=int(issue_number))
+
+        if "last_modified" in ticket and datetime.strptime(ticket["last_modified"],
+                                                           "%a, %d %b %Y %H:%M:%S %Z") >= datetime.strptime(
+                                                            issue.last_modified, "%a, %d %b %Y %H:%M:%S %Z"):
+            return ticket
+
+        ticket = self.get_ticket_details(organization, repo_name, ticket=ticket, issue=issue, issue_number=issue_number)
+
+        with open(f"{directory}/{file}", 'w') as outfile:
+            json.dump(ticket, outfile)
+
+        return ticket
+
+    def get_ticket_details(self,
+                           organization: str,
+                           repo_name: str,
+                           ticket=dict(),
+                           issue=None,
+                           issue_number: int = None):
+
+        if issue is None and issue_number:
+            repo = self.g.get_repo(f'{organization}/{repo_name}')
+            issue = repo.get_issue(number=int(issue_number))
+
+        ticket["body"] = str(issue.body)
+        if issue.user:
+            ticket["assigned"] = str(issue.user.name) if issue.user.name else str(issue.user.login)
+
+        ticket["number"] = str(issue.number)
+        ticket["title"] = str(issue.title)
+        ticket["organization"] = organization
+        ticket["repo"] = repo_name
+        ticket["status"] = str(issue.state)
+        ticket["last_modified"] = str(issue.last_modified)
+
+        comments = issue.get_comments()
+        ticket["comments"] = dict()
+        for comment in comments:
+            if comment.id not in ticket['comments']:
+                ticket["comments"][comment.id] = {
+                    "body": str(comment.body),
+                    "created": str(comment.created_at),
+                    "user": str(comment.user.name) if comment.user.name else str(comment.user.login),
+                    "id": str(comment.id),
+                }
+
+        return ticket
