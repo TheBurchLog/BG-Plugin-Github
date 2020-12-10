@@ -106,6 +106,95 @@ class GithubSummary:
 
         return response
 
+    @command(output_type="HTML", description="Attempts to generate a change log")
+    @parameter(
+        key="organization",
+        description="Github Organization",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="repoName",
+        description="Github Repo Name",
+        optional=False,
+        type="String",
+    )
+    @parameter(
+        key="merge_date",
+        description="When to start query",
+        type="datetime",
+    )
+    @parameter(
+        key="base",
+        description="Branch",
+        optional=True,
+        type="String",
+        default="master",
+    )
+    def generate_change_log(self, organization: str, repoName: str, merge_date: int = None, base: str = "master"):
+        # We are going to use the PRs that are merged against the branch
+        repo = self.g.get_repo(f'{organization}/{repoName}')
+
+        pulls = repo.get_pulls(state='closed', sort='created', base=base)
+
+        merge_date = merge_date / 1000.0
+
+        #issues = repo.get_issues(since=datetime.fromtimestamp(merge_date))
+
+        issues = repo.get_issues(state='closed')
+
+        now = datetime.now()
+
+        bugs = list()
+        features = list()
+        prs_linked = list()
+
+        for issue in issues:
+            if issue.closed_at >= datetime.fromtimestamp(merge_date):
+                for event in issue.get_timeline():
+                    if event.event == "cross-referenced":
+                        if event.source and event.source.issue and event.source.issue.number:
+                            link_id = event.source.issue.number
+
+                            try:
+                                print(f"Compare Issue #{issue.number} to PR #{link_id}")
+                                pr = repo.get_pull(link_id)
+                                prs_linked.append(link_id)
+
+                                if pr.state == "closed" and pr.is_merged() and pr.base.ref == base:
+
+                                    not_bug = True
+                                    for label in issue.get_labels():
+                                        if label.name.lower() == "bug":
+                                            bugs.append(f"<br>- {issue.title} (Issue #{issue.number} / PR #{link_id})")
+                                            not_bug = False
+                                            break
+                                    if not_bug:
+                                        features.append(f"<br>- {issue.title} (Issue #{issue.number} / PR #{link_id})")
+
+                                break
+
+                            except:
+                                pass
+
+        for pr in pulls:
+            if datetime.fromtimestamp(merge_date) <= pr.updated_at <= now and not pr.user.login.endswith("-bot"):
+                if pr.number not in prs_linked and pr.is_merged():
+                    features.append(f"<br>- {pr.title} (PR #{pr.number})")
+
+        output = ""
+        if len(bugs) > 0:
+            output += "<br>#### Bug Fixes"
+            for bug in bugs:
+                output += bug
+
+        if len(features) > 0:
+            output += "<br><br>#### Added Features"
+            for feature in features:
+                output += feature
+
+        return output
+
     @command(output_type="HTML", description="Grabs PRs in date range and provides open/closed data")
     @parameter(
         key="organization",
@@ -679,7 +768,7 @@ class GithubSummary:
 
         if "last_modified" in ticket and datetime.strptime(ticket["last_modified"],
                                                            "%a, %d %b %Y %H:%M:%S %Z") >= datetime.strptime(
-                                                            issue.last_modified, "%a, %d %b %Y %H:%M:%S %Z"):
+            issue.last_modified, "%a, %d %b %Y %H:%M:%S %Z"):
             return ticket
 
         ticket = self.get_ticket_details(organization, repo_name, ticket=ticket, issue=issue, issue_number=issue_number)
